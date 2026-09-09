@@ -1,0 +1,6 @@
+order_id,customer,amount,status
+ORD-1001,acme,120.50,paid
+ORD-1002,globex,89.99,paid
+ORD-1003,initech,240.00,refunded
+ORD-1004,acme,15.25,paid
+ORD-1005,globex,310.75,pending

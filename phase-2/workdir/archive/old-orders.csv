@@ -1,0 +1,3 @@
+order_id,customer,amount,status
+ORD-0912,initech,55.00,paid
+ORD-0913,acme,410.10,paid
