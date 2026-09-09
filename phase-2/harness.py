@@ -1,13 +1,72 @@
 import json
 from pathlib import Path
+from openai import OpenAI
+from types import SimpleNamespace
+from dotenv import load_dotenv
+
+load_dotenv()
+client = OpenAI()
 
 CONFINE = True
 MAX_CHUNK = 1000
 
+MODEL = "gpt-4.1-mini"
+MAX_OUT = 800
+
+SYSTEM = (
+    "You are a file assistant working inside a sandbox directory. "
+    "Use the tools to inspect files before you answer — do not guess at contents. "
+    "When the task is complete, reply with a short plain-text answer."
+)
+
+
+def run(task: str, max_turns: int = 8) -> str:
+    messages = [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": task},
+    ]
+
+    for turn in range(1, max_turns + 1):
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            tools=TOOL_SCHEMAS,
+            max_completion_tokens=MAX_OUT,
+        )
+
+        choice = response.choices[0]
+        msg = choice.message
+        usage = response.usage
+
+        messages.append(msg.model_dump(exclude_none=True))
+
+        calls = msg.tool_calls or []
+        actions = ", ".join(f"{c.function.name}({c.function.arguments})" for c in calls)
+
+        print(f"turn {turn}  in={usage.prompt_tokens:>6}  out={usage.completion_tokens:>4}  "
+              f"{choice.finish_reason:<12} {actions[:70]}")
+
+        if choice.finish_reason == "tool_calls":
+            for call in calls:
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "content": dispatch(call),
+                })
+            continue
+
+        return msg.content
+
+    return f"stopped: hit max_turns ({max_turns})"
+
+
+
 ROOT = (Path(__file__).parent / "workdir").resolve()
+
 
 class ToolError(Exception):
     """Recoverable. Step 2 catches this and hands the text back to the model."""
+
 
 
 def _safe(path : str) -> Path:
@@ -16,6 +75,7 @@ def _safe(path : str) -> Path:
         raise ToolError(f"refused: '{path}' resolves outside the sandbox")
 
     return p
+
 
 
 def list_files(directory : str):
@@ -41,6 +101,7 @@ def list_files(directory : str):
     return text
 
 
+
 def read_file(path : str):
     p = _safe(path)
     if not p.is_file():
@@ -54,6 +115,7 @@ def read_file(path : str):
     return text
 
 
+
 def write_file(path : str, content : str) -> str:
     p = _safe(path)
     existed = p.is_file()
@@ -61,12 +123,14 @@ def write_file(path : str, content : str) -> str:
     return f"{'overwrote' if existed else 'wrote'} {path} ({len(content)} chars)"
 
 
+
 TOOLS = {"list_files" : list_files , "read_file" : read_file, "write_file" : write_file}
+
 
 
 def schema(name, description, **params):
     return{
-        "type" : "funtion",
+        "type" : "function",
         "function":{
             "name" : name,
             "description" : description,
@@ -84,6 +148,7 @@ def schema(name, description, **params):
             "strict" : True
         }
     }
+
 
 
 TOOL_SCHEMAS = [
@@ -108,19 +173,45 @@ TOOL_SCHEMAS = [
     ),
 ]
 
-if __name__ == "__main__":
-    print(f"root: {ROOT}   CONFINE={CONFINE}\n")
-    for label, fn in [
-        ("list_files('.')",                  lambda: list_files(".")),
-        ("read_file('orders.csv')",          lambda: read_file("orders.csv")),
-        ("read_file('ordrs.csv')",           lambda: read_file("ordrs.csv")),
-        ("read_file('../../../etc/passwd')", lambda: read_file("../../../etc/passwd")),
-        ("write_file('scratch.txt', 'hi')",  lambda: write_file("scratch.txt", "hi")),
-    ]:
-        try:
-            print(f"OK   {label}\n     {fn()!r}"[:160])
-        except ToolError as e:
-            print(f"ERR  {label}\n     ToolError: {e}"[:160])
 
-    print("\nwhat the model actually sees for read_file:")
-    print(json.dumps(TOOL_SCHEMAS[1], indent=2))
+
+def dispatch(tool_call) -> str:
+    name = tool_call.function.name
+    raw = tool_call.function.arguments
+
+    try:
+        args = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return f"error: arguments were not valid JSON ({e}). received: {raw[:200]}"
+
+    if not isinstance(args, dict):
+        return f"error: arguments must be a JSON object, got {type(args).__name__}"
+
+    fn = TOOLS.get(name)
+    if fn is None:
+        return f"error: no tool named '{name}'. available: {', '.join(TOOLS)}"
+
+    try:
+        return str(fn(**args))
+    except TypeError as e:
+        return f"error: wrong arguments for {name}: {e}"
+    except ToolError as e:
+        return f"error: {e}"
+    except Exception as e:
+        return f"error: {name} failed: {type(e).__name__}: {e}"
+
+
+
+def fake_call(name, arguments):
+    """Mimics response.choices[0].message.tool_calls[i] — enough of it to test."""
+    return SimpleNamespace(function=SimpleNamespace(name=name, arguments=arguments))
+
+
+if __name__ == "__main__":
+
+    answer = run(
+        "Read orders.csv and total the amounts of the orders with status 'paid'. "
+        "Then write just that total to total.txt."
+    )
+     
+    print(f"\nanswer: {answer}")
