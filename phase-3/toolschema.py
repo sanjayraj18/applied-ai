@@ -61,18 +61,8 @@ TOOL_SCHEMAS=[
 ]
 
 
-def dispatch(tool_call) -> str:
-    name = tool_call.function.name
-    raw = tool_call.function.arguments
-
-    try:
-        args = json.loads(raw)
-    except json.JSONDecodeError as e:
-        return f"error: arguments were not valid JSON ({e}). received: {raw[:200]}"
-
-    if not isinstance(args, dict):
-        return f"error: arguments must be a JSON object, got {type(args).__name__}"
-
+def call_tool(name: str, args: dict) -> str:
+    """The real logic. Called by dispatch() and by any loop executing a plan."""
     fn = TOOLS.get(name)
     if fn is None:
         return f"error: no tool named '{name}'. available: {', '.join(TOOLS)}"
@@ -85,5 +75,21 @@ def dispatch(tool_call) -> str:
         return f"error: {e}"
     except Exception as e:
         return f"error: {name} failed: {type(e).__name__}: {e}"
+
+
+def dispatch(tool_call) -> str:
+    """Adapter: an API tool_call object -> call_tool. JSON parsing lives here,
+    with the untrusted input it exists to handle."""
+    raw = tool_call.function.arguments
+
+    try:
+        args = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return f"error: arguments were not valid JSON ({e}). received: {raw[:200]}"
+
+    if not isinstance(args, dict):
+        return f"error: arguments must be a JSON object, got {type(args).__name__}"
+
+    return call_tool(tool_call.function.name, args)
 
 
