@@ -1,6 +1,11 @@
 import time
+from error import CapExceeded
 
 PRICES = {"gpt-4.1-mini": (0.40, 0.10, 1.60)}   
+
+
+CAPS = {"turns": 10, "tokens": 40_000, "seconds": 120, "usd": 0.05}
+
 
 def cost(usage, model):
     price_in, price_cached, price_out = PRICES[model]
@@ -41,3 +46,16 @@ def row(label, s, ok):
         "secs": round(time.time() - s["t0"], 1),
         "ok": ok,
     }
+
+def check_caps(s, caps=CAPS):
+    if s["turns"] >= caps["turns"]:
+        raise CapExceeded(f"turn cap: {s['turns']} >= {caps['turns']}")
+    if s["in"] + s["out"] >= caps["tokens"]:
+        raise CapExceeded(f"token cap: {s['in'] + s['out']} >= {caps['tokens']}")
+    
+    elapsed = time.time() - s["t0"]
+    
+    if elapsed >= caps["seconds"]:
+        raise CapExceeded(f"wall-clock cap: {elapsed:.1f}s >= {caps['seconds']}s")
+    if s["spend"] >= caps["usd"]:
+        raise CapExceeded(f"dollar cap: ${s['spend']:.6f} >= ${caps['usd']:.2f}")

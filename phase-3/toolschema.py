@@ -48,6 +48,16 @@ TOOL_SCHEMAS=[
             path="File path relative to the sandbox root, e.g. 'total.txt'.",
             content="Full new contents. Replaces anything already there.",
     ),
+     schema(
+        "sum_column",
+        "Sum a numeric column of a CSV across rows matching a filter, using exact "
+        "arithmetic. ALWAYS use this to total numbers from a CSV — never read the "
+        "file and add the values up yourself.",
+        path="CSV path relative to the sandbox root, e.g. 'regions/north.csv'.",
+        filter_column="Column to filter on, e.g. 'status'.",
+        filter_value="Value that column must equal exactly, e.g. 'paid'.",
+        amount_column="Numeric column to sum, e.g. 'amount'.",
+    ),
 ]
 
 

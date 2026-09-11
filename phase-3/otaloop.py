@@ -1,6 +1,7 @@
 from openai import OpenAI
 from error import LoopError
 from toolschema import TOOL_SCHEMAS, dispatch
+from metrices import check_caps
 from dotenv import load_dotenv
 from metrices import new_stats, record, row
 
@@ -20,8 +21,17 @@ SYSTEM = (
     "Never substitute a different file for the one you were asked about."
 )
 
+SYSTEM_REACT = (
+    "You are a file assistant working inside a sandbox directory. "
+    "Before every tool call, state in one sentence: what you know so far, and why "
+    "this specific tool call is the right next step. Then make the call. "
+    "Do not guess at file contents — inspect them. "
+    "When the task is complete, reply with a short plain-text answer."
+)
 
-def run(task : str , iteration = max_iterations, system : str = SYSTEM , trace: list | None = None, stats: dict | None = None):
+
+
+def run(task : str , iteration = max_iterations, system : str = SYSTEM_REACT , trace: list | None = None, stats: dict | None = None):
     if trace is None:
         trace = []
 
@@ -35,6 +45,11 @@ def run(task : str , iteration = max_iterations, system : str = SYSTEM , trace: 
 
 
     for turn in range (1, iteration+1):
+            
+            check_caps(stats)
+
+            print("trace" , trace)
+            
             response = client.chat.completions.create(
                 model="gpt-4.1-mini",
                 messages=messages,
@@ -50,6 +65,10 @@ def run(task : str , iteration = max_iterations, system : str = SYSTEM , trace: 
 
             messages.append(msg.model_dump(exclude_none=True))
             calls = msg.tool_calls or []
+
+            if msg.content:
+                trace.append({"turn": turn, "tool": "(thought)", "args": "",
+                              "result": msg.content[:300]})
 
             match choice.finish_reason:
                 case "tool_calls":
@@ -77,7 +96,7 @@ def run(task : str , iteration = max_iterations, system : str = SYSTEM , trace: 
 
                 case "length":
                     raise LoopError(
-                        f"turn {turn}: truncated at max_completion_tokens={MAX_OUT}. "
+                        f"turn {turn}: truncated at max_completion_tokens={MAX_CHUNKS}. "
                         f"{len(calls)} tool call(s) in flight — arguments may be invalid JSON."
                     )
 
